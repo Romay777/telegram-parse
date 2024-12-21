@@ -78,17 +78,37 @@ async def main():
 
 
 async def get_dialogs(limit, search_type):
-    """Выводит список диалогов"""
+    """Выводит список диалогов и сохраняет их в файл"""
     async with app:
-        async for dialog in app.get_dialogs(limit=limit):
-            if search_type == "dialogs":
-                if dialog.chat.type.name in ["PRIVATE", "GROUP", "SUPERGROUP"]:
-                    print(
-                        f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})")
-            if search_type == "other":
-                if dialog.chat.type.name in ["CHANNEL", "BOT"]:
-                    print(
-                        f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})")
+        # Создаем папку output если её нет
+        os.makedirs("output", exist_ok=True)
+
+        # Создаем папку для текущей сессии
+        session_folder = os.path.join("output", session_file)
+        os.makedirs(session_folder, exist_ok=True)
+
+        # Путь к файлу с диалогами
+        if search_type == "dialogs":
+            output_file = os.path.join(session_folder, "dialogs.txt")
+        else:
+            output_file = os.path.join(session_folder, "channels.txt")
+
+        # Открываем файл для записи
+        with open(output_file, "w", encoding="utf-8") as f:
+            async for dialog in app.get_dialogs(limit=limit):
+                if search_type == "dialogs":
+                    if dialog.chat.type.name in ["PRIVATE", "GROUP", "SUPERGROUP"]:
+                        output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})"
+                        print(output)  # Выводим в консоль
+                        f.write(output + "\n")  # Записываем в файл
+
+                if search_type == "other":
+                    if dialog.chat.type.name in ["CHANNEL", "BOT"]:
+                        output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})"
+                        print(output)  # Выводим в консоль
+                        f.write(output + "\n")  # Записываем в файл
+
+        print(f"\n\033[32mРезультаты сохранены в файл: {output_file}\033[0m")
 
 
 async def get_history(chat_id, limit):
@@ -98,11 +118,19 @@ async def get_history(chat_id, limit):
 
         # Получаем информацию о чате
         chat = await app.get_chat(chat_id)
-        chat_name = chat.title or chat.username or f"Unknown {chat_id}"
+        chat_name = chat.title or chat.username or chat.first_name or f"Unknown_{chat_id}"
 
         # Генерация пути для сохранения файлов
-        folder_name = f"chats\\{chat_name}"
-        os.makedirs(folder_name, exist_ok=True)  # Создаём папку, если её нет
+        # Создаём папку output если её нет
+        os.makedirs("output", exist_ok=True)
+
+        # Создаём папку сессии если её нет
+        session_folder = os.path.join("output", session_file)
+        os.makedirs(session_folder, exist_ok=True)
+
+        # Создаём папку для чата
+        chat_folder = os.path.join(session_folder, f"chat_{chat_name}")
+        os.makedirs(chat_folder, exist_ok=True)
 
         print("Собираю сообщения..")
         counter = 0
@@ -117,7 +145,7 @@ async def get_history(chat_id, limit):
         # messages = messages[:15000]
 
         # Генерация имени текстового файла
-        file_name = os.path.join(folder_name, f"{chat_name}.txt".replace(" ", "_"))
+        file_name = os.path.join(chat_folder, f"{chat_name}.txt".replace(" ", "_"))
 
         print("Сохраняю в файл...")
         counter = 0
@@ -140,7 +168,7 @@ async def get_history(chat_id, limit):
 
                 if message.voice:
                     voice_file_name = os.path.join(
-                        folder_name, f"V_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.ogg"
+                        chat_folder, f"V_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.ogg"
                     )
                     await message.download(file_name=voice_file_name)
                     file.write(
@@ -148,7 +176,7 @@ async def get_history(chat_id, limit):
                     )
                 elif message.photo:
                     photo_file_name = os.path.join(
-                        folder_name, f"P_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.jpg"
+                        chat_folder, f"P_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.jpg"
                     )
                     await message.download(file_name=photo_file_name)
                     file.write(
@@ -156,7 +184,7 @@ async def get_history(chat_id, limit):
                     )
                 elif message.video_note:
                     note_file_name = os.path.join(
-                        folder_name, f"VN_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.mp4"
+                        chat_folder, f"VN_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.mp4"
                     )
                     await message.download(file_name=note_file_name)
                     file.write(
@@ -164,7 +192,7 @@ async def get_history(chat_id, limit):
                     )
                 elif message.video:
                     video_file_name = os.path.join(
-                        folder_name, f"VID_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.mp4"
+                        chat_folder, f"VID_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.mp4"
                     )
                     await message.download(file_name=video_file_name)
                     file.write(
@@ -176,7 +204,7 @@ async def get_history(chat_id, limit):
                     )
                 elif message.document:
                     doc_file_name = os.path.join(
-                        folder_name, f"DOC_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.pdf"
+                        chat_folder, f"DOC_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username}.pdf"
                     )
                     await message.download(file_name=doc_file_name)
                     file.write(
@@ -187,28 +215,49 @@ async def get_history(chat_id, limit):
                         f"[{message.date}] {message.from_user.username or 'Unknown'}: {message.text or ''}\n"
                     )
                 counter += 1
-                logging.info(f"Сохранено: [{counter}/{len(messages)}]")
+                if not counter == len(messages):
+                    logging.info(f"Сохранено: [{counter}/{len(messages)}]")
 
-        print(f"Сообщения сохранены в файл: {file_name}")
+        print(f"\n\033[32mСообщения сохранены в файл: {file_name}\033[0m")
 
 
 # Функция для вывода участников чата
 async def get_chat_members_list(chat_id, limit):
-    """Выводит участников чата."""
+    """Выводит участников чата и сохраняет их список в файл."""
     async with app:
         try:
+            # Получаем информацию о чате
+            chat = await app.get_chat(chat_id)
+            chat_name = chat.title or chat.username or f"Unknown_{chat_id}"
+
+            # Создаём папку output если её нет
+            os.makedirs("output", exist_ok=True)
+
+            # Создаём папку сессии если её нет
+            session_folder = os.path.join("output", session_file)
+            os.makedirs(session_folder, exist_ok=True)
+
+            # Генерируем имя файла
+            file_name = os.path.join(session_folder, f"members_chat_{chat_name}.txt")
+
             print(f"Получение участников чата {chat_id}...")
             members = []
 
             async for member in app.get_chat_members(chat_id, limit=limit):
                 members.append(member)
 
-            # Вывод участников
-            print(f"Найдено {len(members)} участников:")
-            for member in members:
-                user = member.user
-                print(
-                    f"ID: {user.id}, Имя: {user.first_name or 'Неизвестное'} {user.last_name or ''}, Username: {user.username or 'Неизвестное'}")
+            # Сохраняем информацию в файл
+            with open(file_name, "w", encoding="utf-8") as file:
+                file.write(f"Участники чата: {chat_name}\n")
+                file.write(f"Всего участников: {len(members)}\n\n")
+
+                for member in members:
+                    user = member.user
+                    member_info = f"ID: {user.id}, Имя: {user.first_name or 'Неизвестное'} {user.last_name or ''}, Username: {user.username or 'Неизвестное'}"
+                    print(member_info)
+                    file.write(member_info + "\n")  # Записываем в файл
+
+            print(f"\n\033[32mСписок участников сохранен в файл: {file_name}\033[0m")
 
         except Exception as e:
             print(f"Ошибка при получении участников: {e}")
