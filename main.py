@@ -4,6 +4,8 @@ import asyncio
 import os
 import logging
 
+from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, FloodWait
+
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 
@@ -13,36 +15,77 @@ load_dotenv()
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 
-# Путь к папке с сессиями
+# Path to the sessions folder
 sessions_folder = "sessions"
+os.makedirs(sessions_folder, exist_ok=True)  # Ensure the sessions folder exists
 
-# Получение списка файлов в папке
+# Get the list of session files
 sessions = [
-    os.path.splitext(file)[0]  # Извлекаем имя файла без расширения
+    os.path.splitext(file)[0]  # Extract the file name without the extension
     for file in os.listdir(sessions_folder)
-    if file.endswith(".session")  # Оставляем только файлы с расширением .session
+    if file.endswith(".session")  # Only include .session files
 ]
 
-# Проверяем, найдены ли сессии
+# Check if sessions are found
 if sessions:
     print("Найдены сессии:")
     for session in sessions:
         print(session)
-
-    while True:  # Цикл для повторного ввода при ошибке
-        session_file = input("Введите название файла сессии (например, mysession): ")
-
-        if session_file in sessions:
-            session_path = os.path.join(sessions_folder, session_file)
-            print(f"Используем сессию: {session_path}")
-            # Создаём клиент с api_id, api_hash и файлом сессии
-            app = Client(session_path, api_id=api_id, api_hash=api_hash)
-            break  # Выходим из цикла при успешном вводе
-        else:
-            print(f"Ошибка: Сессия '{session_file}' не найдена. Попробуйте ещё раз.")
 else:
+    print("Сессии не найдены.")
+
+# Ask the user if they want to create a new session
+create_new_session = input("Хотите создать новую сессию? (да/нет): ").strip().lower()
+
+if create_new_session == "да":
+    # Create a new session
+    session_name = input("Введите имя новой сессии (например, mysession): ").strip()
+    session_path = os.path.join(sessions_folder, session_name)
+
+    # Create a new client for the session
+    app = Client(session_path, api_id=api_id, api_hash=api_hash)
+
+    # Start the client to initiate login
+    async def create_session():
+        try:
+            await app.start()
+            print("Сессия успешно создана и сохранена.")
+        except PhoneCodeInvalid:
+            print("Ошибка: Неверный код подтверждения.")
+        except SessionPasswordNeeded:
+            password = input("Введите пароль для двухфакторной аутентификации: ")
+            await app.check_password(password)
+            print("Аутентификация прошла успешно.")
+        except FloodWait as e:
+            print(f"Ошибка: Слишком много запросов. Подождите {e} секунд.")
+        except Exception as e:
+            print(f"Ошибка: {e}")
+        finally:
+            await app.stop()
+
+    # Run the session creation function
+    asyncio.run(create_session())
+
+    # Add the new session to the list of available sessions
+    sessions.append(session_name)
+
+# If the user doesn't want to create a new session, proceed with existing sessions
+if not sessions:
     print("Сессии не найдены. Создайте файл сессии перед использованием.")
-    exit()  # Завершаем выполнение программы, если сессий нет
+    exit()  # Exit the program if no sessions are available
+
+# Prompt the user to select an existing session
+while True:
+    session_file = input("Введите название файла сессии (например, mysession): ")
+
+    if session_file in sessions:
+        session_path = os.path.join(sessions_folder, session_file)
+        print(f"Используем сессию: {session_path}")
+        # Create the client with the selected session
+        app = Client(session_path, api_id=api_id, api_hash=api_hash)
+        break  # Exit the loop if a valid session is selected
+    else:
+        print(f"Ошибка: Сессия '{session_file}' не найдена. Попробуйте ещё раз.")
 
 
 async def main():
