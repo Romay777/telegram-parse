@@ -13,16 +13,41 @@ load_dotenv()
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 
-# Файл сессии
-session_file = input("Введите название файла сессии (например, mysession): ")
+# Путь к папке с сессиями
+sessions_folder = "sessions"
 
-# Создаём клиент с api_id, api_hash и файлом сессии
-app = Client(session_file, api_id=api_id, api_hash=api_hash)
+# Получение списка файлов в папке
+sessions = [
+    os.path.splitext(file)[0]  # Извлекаем имя файла без расширения
+    for file in os.listdir(sessions_folder)
+    if file.endswith(".session")  # Оставляем только файлы с расширением .session
+]
+
+# Проверяем, найдены ли сессии
+if sessions:
+    print("Найдены сессии:")
+    for session in sessions:
+        print(session)
+
+    while True:  # Цикл для повторного ввода при ошибке
+        session_file = input("Введите название файла сессии (например, mysession): ")
+
+        if session_file in sessions:
+            session_path = os.path.join(sessions_folder, session_file)
+            print(f"Используем сессию: {session_path}")
+            # Создаём клиент с api_id, api_hash и файлом сессии
+            app = Client(session_path, api_id=api_id, api_hash=api_hash)
+            break  # Выходим из цикла при успешном вводе
+        else:
+            print(f"Ошибка: Сессия '{session_file}' не найдена. Попробуйте ещё раз.")
+else:
+    print("Сессии не найдены. Создайте файл сессии перед использованием.")
+    exit()  # Завершаем выполнение программы, если сессий нет
 
 
 async def main():
     while True:
-        print("\nДействие:\n 1. Показать список диалогов (узнать ID)\n2. Скачать последние сообщения из чата\n3. "
+        print("\nДействие:\n1. Показать список диалогов (узнать ID)\n2. Скачать последние сообщения из чата\n3. "
               "Перезагрузить истекшие файлы (Error 400)\n4. Посмотреть участников группы\n5. Посмотреть каналы и "
               "ботов\n0. Выход")
 
