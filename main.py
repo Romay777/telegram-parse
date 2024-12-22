@@ -221,7 +221,7 @@ async def get_history(chat_id, limit, text_only: False):
                     )
                 elif message.photo:
                     photo_file_name = os.path.join(
-                        chat_folder, f"P_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}.jpg"
+                        chat_folder, f"P_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}_{message.photo.file_unique_id}.jpg"
                     )
                     if not text_only:
                         await message.download(file_name=photo_file_name)
@@ -239,7 +239,7 @@ async def get_history(chat_id, limit, text_only: False):
                     )
                 elif message.video:
                     video_file_name = os.path.join(
-                        chat_folder, f"VID_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}.mp4"
+                        chat_folder, f"VID_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}_{message.video.file_unique_id}.mp4"
                     )
                     if not text_only:
                         await message.download(file_name=video_file_name)
@@ -259,9 +259,17 @@ async def get_history(chat_id, limit, text_only: False):
                     file.write(
                         f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: Документ сохранен как {doc_file_name}\n"
                     )
+                elif message.animation:
+                    file.write(
+                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {'animation'}\n"
+                    )
+                elif message.audio:
+                    file.write(
+                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {'audio'}\n"
+                    )
                 else:  # Обычный текст
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {message.text or ''}\n"
+                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {message.text or getattr(message, str(message.media.value))}\n"
                     )
                 counter += 1
                 if not counter == len(messages):
