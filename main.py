@@ -5,6 +5,7 @@ import os
 import logging
 
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, FloodWait
+from pyrogram.raw.functions.messages import DeleteHistory
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
@@ -45,6 +46,7 @@ if create_new_session == "да":
     # Create a new client for the session
     app = Client(session_path, api_id=api_id, api_hash=api_hash)
 
+
     # Start the client to initiate login
     async def create_session():
         try:
@@ -62,6 +64,7 @@ if create_new_session == "да":
             print(f"Ошибка: {e}")
         finally:
             await app.stop()
+
 
     # Run the session creation function
     asyncio.run(create_session())
@@ -91,7 +94,8 @@ while True:
 async def main():
     while True:
         print("\nДействие:\n1. Показать список диалогов (узнать ID)\n2. Скачать последние сообщения из чата\n"
-              "3. Посмотреть участников группы\n4. Посмотреть каналы и ботов\n0. Выход")
+              "3. Посмотреть участников группы\n4. Посмотреть каналы и ботов\n5. Удалить переписку\n6. Показать "
+              "только ЛС\n0. Выход")
 
         try:
             do = int(input("\nВведите номер действия: "))
@@ -117,8 +121,14 @@ async def main():
         elif do == 4:
             limit = int(input("Введите количество чатов для получения (0 для всех): "))
             await get_dialogs(limit, "other")
+        elif do == 5:
+            chat_id = input("Введите ID или username чата: ")
+            await delete_chat_history(chat_id)
+        elif do == 6:
+            limit = int(input("Введите количество чатов для получения (0 для всех): "))
+            await get_dialogs(limit, "private")
         else:
-            print("Ошибка: выберите действие от 0 до 4")
+            print("Ошибка: выберите действие от 0 до 6")
 
 
 async def get_dialogs(limit, search_type):
@@ -134,21 +144,32 @@ async def get_dialogs(limit, search_type):
         # Путь к файлу с диалогами
         if search_type == "dialogs":
             output_file = os.path.join(session_folder, "dialogs.txt")
-        else:
+        elif search_type == "other":
             output_file = os.path.join(session_folder, "channels.txt")
+        else:
+            output_file = os.path.join(session_folder, "privates.txt")
 
         # Открываем файл для записи
         with open(output_file, "w", encoding="utf-8") as f:
             async for dialog in app.get_dialogs(limit=limit):
+                last_message_date = dialog.top_message.date.strftime(
+                    "%Y-%m-%d %H:%M:%S") if dialog.top_message else "Нет сообщений"
+
                 if search_type == "dialogs":
                     if dialog.chat.type.name in ["PRIVATE", "GROUP", "SUPERGROUP"]:
-                        output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})"
+                        output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name}) | Last Message: {last_message_date}"
                         print(output)  # Выводим в консоль
                         f.write(output + "\n")  # Записываем в файл
 
                 if search_type == "other":
                     if dialog.chat.type.name in ["CHANNEL", "BOT"]:
                         output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})"
+                        print(output)  # Выводим в консоль
+                        f.write(output + "\n")  # Записываем в файл
+
+                if search_type == "private":
+                    if dialog.chat.type.name == "PRIVATE":
+                        output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name}) | Last Message: {last_message_date}"
                         print(output)  # Выводим в консоль
                         f.write(output + "\n")  # Записываем в файл
 
@@ -206,76 +227,83 @@ async def get_history(chat_id, limit, text_only: False):
                     if message.forward_from:  # Если доступна информация о пользователе
                         file.write(f"[FWD] {message.forward_from.first_name or message.forward_from.username} ")
                     elif message.forward_from_chat:  # Если переслано из чата или канала
-                        file.write(f"[FWD] {message.forward_from_chat.title or message.forward_from_chat.first_name or message.forward_from_chat.username} ")
+                        file.write(
+                            f"[FWD] {message.forward_from_chat.title or message.forward_from_chat.first_name or message.forward_from_chat.username} ")
                     else:
                         file.write("[FWD] Неизвестный источник ")
 
                 if message.voice:
                     voice_file_name = os.path.join(
-                        chat_folder, f"V_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}.ogg"
+                        chat_folder,
+                        f"V_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username if message.from_user else chat_name}_{message.voice.file_unique_id}.ogg"
                     )
                     if not text_only:
                         await message.download(file_name=voice_file_name)
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: Голосовое сообщение сохранено как {voice_file_name}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: Голосовое сообщение сохранено как {voice_file_name}\n"
                     )
                 elif message.photo:
                     photo_file_name = os.path.join(
-                        chat_folder, f"P_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}_{message.photo.file_unique_id}.jpg"
+                        chat_folder,
+                        f"P_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username if message.from_user else chat_name}_{message.photo.file_unique_id}.jpg"
                     )
                     if not text_only:
                         await message.download(file_name=photo_file_name)
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: Фото сохранено как {photo_file_name}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: Фото сохранено как {photo_file_name}\n"
                     )
                 elif message.video_note:
                     note_file_name = os.path.join(
-                        chat_folder, f"VN_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}.mp4"
+                        chat_folder,
+                        f"VN_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username if message.from_user else chat_name}_{message.video_note.file_unique_id}.mp4"
                     )
                     if not text_only:
                         await message.download(file_name=note_file_name)
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: Кружок сохранен как {note_file_name}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: Кружок сохранен как {note_file_name}\n"
                     )
                 elif message.video:
                     video_file_name = os.path.join(
-                        chat_folder, f"VID_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}_{message.video.file_unique_id}.mp4"
+                        chat_folder,
+                        f"VID_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username if message.from_user else chat_name}_{message.video.file_unique_id}.mp4"
                     )
                     if not text_only:
                         await message.download(file_name=video_file_name)
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: Видео сохранено как {video_file_name}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: Видео сохранено как {video_file_name}\n"
                     )
                 elif message.sticker:
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {'[Стикер]'}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: {'[Стикер]'}\n"
                     )
                 elif message.document:
                     doc_file_name = os.path.join(
-                        chat_folder, f"DOC_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username or chat_name}.pdf"
+                        chat_folder,
+                        f"DOC_{message.date.strftime("%d_%m_%Y_%H%M%S")}_{message.from_user.username if message.from_user else chat_name}.pdf"
                     )
                     if not text_only:
                         await message.download(file_name=doc_file_name)
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: Документ сохранен как {doc_file_name}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: Документ сохранен как {doc_file_name}\n"
                     )
                 elif message.animation:
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {'animation'}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: {'animation'}\n"
                     )
                 elif message.audio:
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {'audio'}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: {'audio'}\n"
                     )
                 else:  # Обычный текст
                     file.write(
-                        f"[{message.date}] {message.from_user.username or chat_name or 'Unknown'}: {message.text or getattr(message, str(message.media.value))}\n"
+                        f"[{message.date}] {message.from_user.username if message.from_user else chat_name or 'Unknown'}: {message.text}\n"
                     )
                 counter += 1
                 if not counter == len(messages):
                     logging.info(f"Сохранено: [{counter}/{len(messages)}]")
 
         print(f"\n\033[32mСообщения сохранены в файл: {file_name}\033[0m")
+        os.startfile(chat_folder)
 
 
 # Функция для вывода участников чата
@@ -318,6 +346,21 @@ async def get_chat_members_list(chat_id, limit):
 
         except Exception as e:
             print(f"Ошибка при получении участников: {e}")
+
+
+async def delete_chat_history(chat_id):
+    async with app:
+        try:
+            # Вызов метода DeleteHistory
+            result = await app.invoke(DeleteHistory(
+                peer=await app.resolve_peer(chat_id),  # Преобразование ID чата в объект Peer
+                just_clear=False,  # False означает, что удаляем сообщения для обеих сторон
+                revoke=True,  # True для удаления сообщений у собеседника
+                max_id=0  # Удаляем все сообщения до самого первого
+            ))
+            print(f"\n\033[37mИстория сообщений в чате {chat_id} удалена. Всего: {result.pts_count}\033[0m")
+        except Exception as e:
+            print(f"Ошибка при удалении истории сообщений: {e}")
 
 
 app.run(main())
