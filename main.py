@@ -6,6 +6,8 @@ import logging
 
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, FloodWait
 from pyrogram.raw.functions.messages import DeleteHistory
+from pyrogram.raw.functions.channels import DeleteChannel
+from pyrogram.raw.functions.contacts import GetContacts
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
@@ -33,7 +35,7 @@ if sessions:
     for session in sessions:
         print(session)
 else:
-    print("\n\033[37mНайдены сессии: \033[0m")
+    print("\n\033[37mСессии не найдены \033[0m")
 
 # Ask the user if they want to create a new session
 create_new_session = input("Хотите создать новую сессию? (да/нет): ").strip().lower()
@@ -95,7 +97,7 @@ async def main():
     while True:
         print("\nДействие:\n1. Показать список диалогов (узнать ID)\n2. Скачать последние сообщения из чата\n"
               "3. Посмотреть участников группы\n4. Посмотреть каналы и ботов\n5. Удалить переписку\n6. Показать "
-              "только ЛС\n0. Выход")
+              "только ЛС\n7.Удалить канал\n777. Полная очистка профиля\n0. Выход")
 
         try:
             do = int(input("\nВведите номер действия: "))
@@ -123,12 +125,17 @@ async def main():
             await get_dialogs(limit, "other")
         elif do == 5:
             chat_id = input("Введите ID или username чата: ")
-            await delete_chat_history(chat_id)
+            await delete_chat_history(chat_id, app)
         elif do == 6:
             limit = int(input("Введите количество чатов для получения (0 для всех): "))
             await get_dialogs(limit, "private")
+        elif do == 7:
+            channel_id = int(input("Введите ID канала: "))
+            await delete_channel(channel_id, app)
+        elif do == 777:
+            await clear_account()
         else:
-            print("Ошибка: выберите действие от 0 до 6")
+            print("Ошибка: выберите действие от 0 до 7")
 
 
 async def get_dialogs(limit, search_type):
@@ -163,7 +170,14 @@ async def get_dialogs(limit, search_type):
 
                 if search_type == "other":
                     if dialog.chat.type.name in ["CHANNEL", "BOT"]:
-                        output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})"
+                        if dialog.chat.type.name in ["CHANNEL"]:
+                            member = await app.get_chat_member(dialog.chat.id, "me")
+                            if member.status.name in ["ADMINISTRATOR", "OWNER"]:
+                                output = f"\n\033[32m{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name}) | ADMIN\033[0m"
+                            else:
+                                output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})"
+                        else:
+                            output = f"{dialog.chat.title or dialog.chat.first_name} (ID: {dialog.chat.id}) ({dialog.chat.type.name})"
                         print(output)  # Выводим в консоль
                         f.write(output + "\n")  # Записываем в файл
 
@@ -348,19 +362,114 @@ async def get_chat_members_list(chat_id, limit):
             print(f"Ошибка при получении участников: {e}")
 
 
-async def delete_chat_history(chat_id):
+async def delete_chat_history(chat_id, app_ex):
+    try:
+        # Вызов метода DeleteHistory
+        result = await app_ex.invoke(DeleteHistory(
+            peer=await app_ex.resolve_peer(chat_id),  # Преобразование ID чата в объект Peer
+            just_clear=False,  # False означает, что удаляем сообщения для обеих сторон
+            revoke=True,  # True для удаления сообщений у собеседника
+            max_id=0  # Удаляем все сообщения до самого первого
+        ))
+        print(f"\n\033[37mИстория сообщений в чате {chat_id} удалена. Всего: {result.pts_count}\033[0m")
+    except Exception as e:
+        print(f"Ошибка при удалении истории сообщений: {e}")
+
+
+async def delete_channel(channel_id, app_ex):
+    try:
+        # Вызов метода DeleteHistory\
+        chat = await app_ex.get_chat(channel_id)
+        result = await app_ex.invoke(DeleteChannel(channel=await app.resolve_peer(channel_id)))
+        print(f"\n\033[37mКанал {channel_id} | {chat.title} удален. Result: {result}\033[0m")
+    except Exception as e:
+        print(f"Ошибка при удалении канала: {e}")
+
+
+async def clear_account():
+    """Полная очистка аккаунта Telegram"""
     async with app:
+        print("Начинаем процесс очистки аккаунта...")
+
         try:
-            # Вызов метода DeleteHistory
-            result = await app.invoke(DeleteHistory(
-                peer=await app.resolve_peer(chat_id),  # Преобразование ID чата в объект Peer
-                just_clear=False,  # False означает, что удаляем сообщения для обеих сторон
-                revoke=True,  # True для удаления сообщений у собеседника
-                max_id=0  # Удаляем все сообщения до самого первого
-            ))
-            print(f"\n\033[37mИстория сообщений в чате {chat_id} удалена. Всего: {result.pts_count}\033[0m")
+            # Удаление фото профиля
+            print("Удаление фото профиля...")
+            async for photo in app.get_chat_photos("me"):  # Используем async for для итерации
+                await app.delete_profile_photos(photo.file_id)
+
+            # Очистка статуса
+            print("Очистка статуса...")
+            await app.update_profile(bio="")
+
+            # Очистка контактов
+            print("Удаление контактов...")
+            contacts = await app.invoke(GetContacts(hash=0))
+            if contacts.contacts:
+                user_ids = [contact.user_id for contact in contacts.contacts]
+                await app.delete_contacts(user_ids=user_ids)
+                print("Контакты удалены.")
+            else:
+                print("Нет контактов для удаления.")
+
+            # Удаление username
+            print("Удаление username...")
+            user = await app.get_me()
+            if user.username:
+                await app.set_username(username=None)
+
+            # Получение и удаление всех диалогов
+            print("Получение списка диалогов...")
+            async for dialog in app.get_dialogs():
+                chat_type = dialog.chat.type
+                chat_id = dialog.chat.id
+
+                try:
+                    if chat_type.name == "PRIVATE":
+                        # Удаление истории в личных чатах
+                        print(f"Очистка истории с пользователем {dialog.chat.first_name}...")
+                        await delete_chat_history(chat_id, app)
+
+                    elif chat_type.name == "BOT":
+                        # Блокировка и удаление ботов
+                        print(f"Блокировка бота {dialog.chat.first_name}...")
+                        await app.block_user(chat_id)
+                        # Удаление истории с ботом
+                        await delete_chat_history(chat_id, app)
+
+                    elif chat_type.name in ["GROUP", "SUPERGROUP"]:
+                        # Удаление истории группы
+                        print(f"Очистка истории группы {dialog.chat.title}...")
+                        await delete_chat_history(chat_id, app)
+                        # Выход из группы
+                        print(f"Выход из группы {dialog.chat.title}...")
+                        await app.leave_chat(chat_id)
+
+                    elif chat_type.name == "CHANNEL":
+                        # Проверка на права администратора
+                        member = await app.get_chat_member(chat_id, "me")
+                        if member.status.name == "CREATOR" or member.status.name == "ADMINISTRATOR":
+                            print(f"Удаление канала {dialog.chat.title}...")
+                            await delete_channel(chat_id, app)
+                        else:
+                            print(f"Выход из канала {dialog.chat.title}...")
+                            await app.leave_chat(chat_id)
+
+                except Exception as e:
+                    print(f"Ошибка при обработке чата {dialog.chat.title or dialog.chat.first_name}: {e}")
+                    continue
+
+            # Очистка облачных данных
+            print("Очистка облачных данных...")
+            try:
+                # Удаление сохраненных сообщений
+                await delete_chat_history("me", app)
+            except Exception as e:
+                print(f"Ошибка при очистке облачных данных: {e}")
+
+            print("\n\033[32mПроцесс очистки аккаунта завершен\033[0m")
+
         except Exception as e:
-            print(f"Ошибка при удалении истории сообщений: {e}")
+            print(f"Произошла критическая ошибка: {e}")
 
 
 app.run(main())
